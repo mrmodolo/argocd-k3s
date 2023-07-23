@@ -1,6 +1,6 @@
 # Instalação e configuração do Argo CD no K3s
 
-## Instalação padrão
+## Instalação básica
 
 ```bash
 k create namespace argocd
@@ -9,24 +9,50 @@ k config set-context --current --namespace=argocd
 
 k apply -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-ARGO_PWD=`k -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d`
+ARGO_PWD=$(k -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
 
 k port-forward svc/argocd-server -n argocd 1443:443
 ```
 
-## Certificados
+## Instalação básica com helm
 
-### CA 
+```bash
+k create namespace argocd
+
+helm repo add argo https://argoproj.github.io/argo-helm
+helm repo update
+helm install argocd argo/argo-cd --namespace argocd
+
+k get pods -n argocd
+
+ARGO_PWD=$(k -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+
+k port-forward svc/argocd-server -n argocd 1443:443
+
+```
+
+## Criação dos Certificados
+
+A instalação do Argo CD cria um certificado TLS auto assinado e sem uma Root CA,
+dessa forma não é possível importar a certificado para o chrome.
+
+Não é difícil criar e alterar o certificado do servidor.
+
+### Root CA
 
 ```bash
 mkdir ca && cd ca
 
 openssl genrsa -des3 -out ArgoCDRootCA.key.pem 4096
 
-openssl req -x509 -new -nodes -key rootCA.key -sha256 -days 1024 -out ArgoCDRootCA.crt.pem
+openssl req -x509 -new -nodes -key ArgoCDRootCA.key.pem -sha256 -days 1024 -out ArgoCDRootCA.crt.pem
 ```
 
-### Servidor
+### Servidor Argo CD
+
+O script `argocd-server-argocd.sh` gera a chave, o CSR e assina
+o certificado com a Root CA criada anteriormente.
+
 
 ```bash
 mkdir server && cd server
@@ -41,7 +67,7 @@ openssl req -in argocd-server.argocd.csr -text
 
 ```
 
-### Verificar os certificados
+### Verificando os certificados
 
 ```bash
 openssl verify -CAfile ArgoCDRootCA.crt.pem argocd-server.argocd.crt.pem
@@ -51,10 +77,9 @@ openssl x509 -in argocd-server.argocd.crt.pem -text
 ```
 
 
-### Substituir Certificado
+### Substituindo o Certificado do Servidor
 
-O certificado gerado é auto assinado, para que seja possível exibir como seguro no chrome,
-será necessário gerar uma CA para assinar o novo certificado.
+É necessário atualizar os valores (tls.key e tls.crt) no secret.
 
 ```bash
 k config set-context --current --namespace=argocd
@@ -63,13 +88,11 @@ k get secret argocd-secret -o yaml | kubectl-neat > argocd-secret.yaml
 
 cp argocd-secret.yaml argocd-secret-ca.yaml
 
-base64 -w0 server/argocd-server.argocd.crt.pem | xclip -sel c
+tls_key=$(base64 -w0 ./server/argocd-server.argocd.key.pem) \
+    yq -i '.data."tls.key" = strenv(tls_key)' argocd-secret-ca.yaml
 
-lvim argocd-secret-ca.yaml
-
-base64 -w0 server/argocd-server.argocd.key.pem | xclip -sel c
-
-lvim argocd-secret-ca.yaml
+tls_crt=$(base64 -w0 ./server/argocd-server.argocd.crt.pem) \
+    yq -i '.data."tls.crt" = strenv(tls_crt)' argocd-secret-ca.yaml
 
 k apply -f argocd-secret-ca.yaml
 ```
@@ -89,7 +112,7 @@ k get ingress
 
 ## Desabilitar o TLS para o Argo CD
 
-Vamos usar o Ingress para o acesso https, para isso é necessário editar o arquivo
+Com o Ingress para o acesso https, é necessário editar o arquivo
 [argocd-cmd-params-cm.yaml](./argocd-cmd-params-cm.yaml) adicionando a chave `server.insegure = "true"`
 
 ```bash
@@ -205,22 +228,10 @@ Muito bem explicado, cria a CA, o sertificado e mostra como criar múltiplos nom
 
 [Installing ArgoCD on k3s](https://lumochift.org/blog/k3s-argocd)
 
-Instalação básica com helm!
-
-```bash
-k3s kubectl create namespace argocd
-
-helm repo add argo https://argoproj.github.io/argo-helm
-helm repo update
-helm install argocd argo/argo-cd --namespace argocd
-
-k3s kubectl get pods -n argocd
-
-k3s kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
-
-k3s kubectl port-forward svc/argocd-server -n argocd 1443:443
-
-```
-
 [SSL Certificate Verification](https://curl.se/docs/sslcerts.html)
 
+[All your YAML shaping in one tool](https://carvel.dev/ytt/)
+
+[yq](https://github.com/mikefarah/yq/tree/master)
+
+> a lightweight and portable command-line YAML, JSON and XML processor. yq uses jq like syntax but works with yaml files as well as json, xml, properties, csv and tsv. It doesn't yet support everything jq does - but it does support the most common operations and functions, and more is being added continuously.
