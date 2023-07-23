@@ -31,6 +31,12 @@ k port-forward svc/argocd-server -n argocd 1443:443
 
 ```
 
+## Remoção
+
+```bash
+k delete -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+```
+
 ## Criação dos Certificados
 
 A instalação do Argo CD cria um certificado TLS auto assinado e sem uma Root CA,
