@@ -1,0 +1,5 @@
+creation_rules:
+  - path_regex: \.key\.pem$
+    key_groups:
+      - age:
+          - 'age1l58lctgy92gfdfl7z4unl4mu99qgpmgpwpctrak6u4fdsw242ufqxlu93a'
